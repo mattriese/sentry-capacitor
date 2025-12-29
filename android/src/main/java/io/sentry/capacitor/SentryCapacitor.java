@@ -215,6 +215,7 @@ public class SentryCapacitor extends Plugin {
                 scope.setUser(userInstance);
             }
         });
+        call.resolve(new JSObject());
     }
 
     @PluginMethod
@@ -250,7 +251,9 @@ public class SentryCapacitor extends Plugin {
             call.reject(errorMsg);
             return;
         }
-        call.resolve();
+        // Resolve with empty object to avoid Capacitor logging "undefined" to Logcat
+        // See: https://github.com/ionic-team/capacitor/issues/4986
+        call.resolve(new JSObject());
     }
 
     @PluginMethod
@@ -328,18 +331,21 @@ public class SentryCapacitor extends Plugin {
 
             scope.addBreadcrumb(breadcrumbInstance);
         });
-        breadcrumb.resolve();
+        // Resolve with empty object to avoid Capacitor logging "undefined" to Logcat
+        // This method is called frequently (for every console breadcrumb) so the spam is significant
+        breadcrumb.resolve(new JSObject());
     }
 
     @PluginMethod
     public void clearBreadcrumbs(PluginCall call) {
         Sentry.configureScope(IScope::clearBreadcrumbs);
+        call.resolve(new JSObject());
     }
 
     @PluginMethod
     public void closeNativeSdk(PluginCall call) {
         Sentry.close();
-        call.resolve();
+        call.resolve(new JSObject());
     }
 
     @PluginMethod
@@ -351,7 +357,7 @@ public class SentryCapacitor extends Plugin {
                 scope.setExtra(key, value);
             });
         }
-        call.resolve();
+        call.resolve(new JSObject());
     }
 
     @PluginMethod
@@ -373,7 +379,7 @@ public class SentryCapacitor extends Plugin {
               scope.removeTag(key);
             });
         }
-        call.resolve();
+        call.resolve(new JSObject());
     }
 
     @PluginMethod
