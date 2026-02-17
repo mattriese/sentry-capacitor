@@ -1,17 +1,17 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.0
 import PackageDescription
 
 let package = Package(
     name: "SentryCapacitor",
-    platforms: [.iOS(.v14)],
+    platforms: [.iOS(.v15)],
     products: [
         .library(
             name: "SentryCapacitor",
             targets: ["SentryCapacitorPlugin"])
     ],
     dependencies: [
-        .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", from: "7.0.0"),
-        .package(url: "https://github.com/getsentry/sentry-cocoa", from: "8.56.2")
+        .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", "7.0.0"..<"9.0.0"),
+        .package(url: "https://github.com/getsentry/sentry-cocoa", from: "9.3.0")
     ],
     targets: [
         .target(

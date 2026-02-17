@@ -154,6 +154,14 @@ public class SentryCapacitor extends Plugin {
                     }
                 }
 
+                // In case some user enable Android Replay by accident,
+                // it will not work with JavaScript replay, so we enforce this to disable Android replay.
+                // If you are interested on being able to use native replay, please open a Github issue
+                // on the following repo: https://github.com/getsentry/sentry-capacitor.
+                var controller = options.getSessionReplay();
+                controller.setSessionSampleRate(null);
+                controller.setOnErrorSampleRate(null);
+
                 options.getLogs().setEnabled(Boolean.TRUE.equals(capOptions.getBoolean("enableLogs", false)));
 
                 logger.log(SentryLevel.INFO, String.format("Native Integrations '%s'", options.getIntegrations()));
@@ -230,6 +238,14 @@ public class SentryCapacitor extends Plugin {
         release.put("version", packageInfo.versionName);
         release.put("build", String.valueOf(packageInfo.versionCode)); // Requires API 28
         call.resolve(release);
+    }
+
+    @PluginMethod
+    public void fetchNativeSdkInfo(PluginCall call) {
+        JSObject sdkInfo = new JSObject();
+        sdkInfo.put("name", ANDROID_SDK_NAME);
+        sdkInfo.put("version", BuildConfig.VERSION_NAME);
+        call.resolve(sdkInfo);
     }
 
     @PluginMethod
@@ -426,6 +442,85 @@ public class SentryCapacitor extends Plugin {
       else {
         call.resolve();
       }
+    }
+
+    @PluginMethod
+    public void fetchNativeLogAttributes(PluginCall call) {
+        final SentryOptions options = ScopesAdapter.getInstance().getOptions();
+        final IScope currentScope = InternalSentrySdk.getCurrentScope();
+
+        if (options == null || currentScope == null) {
+            call.resolve();
+            return;
+        }
+
+        final Map<String, Object> serialized =
+            InternalSentrySdk.serializeScope(context, (SentryAndroidOptions) options, currentScope);
+
+        JSObject result = new JSObject();
+        JSObject contexts = new JSObject();
+
+        // Extract device context
+        if (serialized.containsKey("contexts")) {
+            Object contextsObj = serialized.get("contexts");
+            if (contextsObj instanceof Map) {
+                Map<?, ?> contextsMap = (Map<?, ?>) contextsObj;
+
+                // Extract device info
+                if (contextsMap.containsKey("device")) {
+                    Object deviceObj = contextsMap.get("device");
+                    if (deviceObj instanceof Map) {
+                        Map<?, ?> deviceMap = (Map<?, ?>) deviceObj;
+                        JSObject device = new JSObject();
+
+                        if (deviceMap.containsKey("brand")) {
+                            device.put("brand", deviceMap.get("brand"));
+                        }
+                        if (deviceMap.containsKey("model")) {
+                            device.put("model", deviceMap.get("model"));
+                        }
+                        if (deviceMap.containsKey("family")) {
+                            device.put("family", deviceMap.get("family"));
+                        }
+
+                        if (device.length() > 0) {
+                            contexts.put("device", device);
+                        }
+                    }
+                }
+
+                // Extract OS info
+                if (contextsMap.containsKey("os")) {
+                    Object osObj = contextsMap.get("os");
+                    if (osObj instanceof Map) {
+                        Map<?, ?> osMap = (Map<?, ?>) osObj;
+                        JSObject os = new JSObject();
+
+                        if (osMap.containsKey("name")) {
+                            os.put("name", osMap.get("name"));
+                        }
+                        if (osMap.containsKey("version")) {
+                            os.put("version", osMap.get("version"));
+                        }
+
+                        if (os.length() > 0) {
+                            contexts.put("os", os);
+                        }
+                    }
+                }
+            }
+        }
+
+        if (contexts.length() > 0) {
+            result.put("contexts", contexts);
+        }
+
+        // Extract release
+        if (serialized.containsKey("release")) {
+            result.put("release", serialized.get("release"));
+        }
+
+        call.resolve(result);
     }
 
     public void setEventOriginTag(SentryEvent event) {

@@ -1,11 +1,6 @@
 import Foundation
 import Capacitor
-import Sentry
-
-// Keep compatibility with CocoaPods.
-#if SWIFT_PACKAGE
-import Sentry._Hybrid
-#endif
+@preconcurrency import Sentry
 
 /**
  * Please read the Capacitor iOS Plugin Development Guide
@@ -21,6 +16,7 @@ public class SentryCapacitorPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "fetchNativeRelease",returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "fetchNativeSdkInfo",returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "fetchNativeDeviceContexts",returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "fetchNativeLogAttributes",returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getStringBytesLength",returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setTag",returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setExtra",returnType: CAPPluginReturnPromise),
@@ -70,7 +66,7 @@ public class SentryCapacitorPlugin: CAPPlugin, CAPBridgedPlugin {
         }
 
         do {
-            let options = try SentryOptionsInternal.initWithDict(optionsDict)
+            let options = try createOptions(from: optionsDict)
             let sdkVersion = PrivateSentrySDKOnly.getSdkVersionString()
             PrivateSentrySDKOnly.setSdkName(nativeSdkName, andVersionString: sdkVersion)
 
@@ -102,8 +98,67 @@ public class SentryCapacitorPlugin: CAPPlugin, CAPBridgedPlugin {
 
             call.resolve()
         } catch {
-            call.reject("Failed to start native SDK")
+            call.reject("Failed to start native SDK: \(error.localizedDescription)")
         }
+    }
+
+    private func createOptions(from dict: [AnyHashable: Any]) throws -> Options {
+        guard let dsn = dict["dsn"] as? String else {
+            throw NSError(domain: "SentryCapacitor", code: 1, userInfo: [NSLocalizedDescriptionKey: "DSN is required"])
+        }
+
+        let options = Options()
+        options.dsn = dsn
+
+        if let debug = dict["debug"] as? Bool {
+            options.debug = debug
+        }
+
+        if let environment = dict["environment"] as? String {
+            options.environment = environment
+        }
+
+        if let release = dict["release"] as? String {
+            options.releaseName = release
+        }
+
+        if let dist = dict["dist"] as? String {
+            options.dist = dist
+        }
+
+        if let enableAutoSessionTracking = dict["enableAutoSessionTracking"] as? Bool {
+            options.enableAutoSessionTracking = enableAutoSessionTracking
+        }
+
+        if let sessionTrackingIntervalMillis = dict["sessionTrackingIntervalMillis"] as? Int {
+            options.sessionTrackingIntervalMillis = UInt(sessionTrackingIntervalMillis)
+        }
+
+        if let maxBreadcrumbs = dict["maxBreadcrumbs"] as? Int {
+            options.maxBreadcrumbs = UInt(maxBreadcrumbs)
+        }
+
+        if let enableNativeCrashHandling = dict["enableNativeCrashHandling"] as? Bool {
+            options.enableCrashHandler = enableNativeCrashHandling
+        }
+
+        if let attachStacktrace = dict["attachStacktrace"] as? Bool {
+            options.attachStacktrace = attachStacktrace
+        }
+
+        if let sampleRate = dict["sampleRate"] as? Double {
+            options.sampleRate = NSNumber(value: sampleRate)
+        }
+
+        if let tracesSampleRate = dict["tracesSampleRate"] as? Double {
+            options.tracesSampleRate = NSNumber(value: tracesSampleRate)
+        }
+
+        if let enableAutoPerformanceTracing = dict["enableAutoPerformanceTracing"] as? Bool {
+            options.enableAutoPerformanceTracing = enableAutoPerformanceTracing
+        }
+
+        return options
     }
 
     @objc func captureEnvelope(_ call: CAPPluginCall) {
@@ -214,6 +269,77 @@ public class SentryCapacitorPlugin: CAPPlugin, CAPBridgedPlugin {
             contexts["contexts"] = context
 
             call.resolve(contexts as PluginCallResultData)
+        }
+    }
+
+    @objc func fetchNativeLogAttributes(_ call: CAPPluginCall) {
+        SentrySDK.configureScope { scope in
+            let serializedScope = scope.serialize()
+            var result: [String: Any] = [:]
+            var contexts: [String: Any] = [:]
+
+            // Extract device & OS context from scope
+            if let scopeContexts = serializedScope["context"] as? [String: Any],
+            let deviceContext = scopeContexts["device"] as? [String: Any] {
+
+                var device: [String: Any] = [:]
+
+                if let brand = deviceContext["brand"] as? String {
+                    device["brand"] = brand
+                }
+                if let model = deviceContext["model"] as? String {
+                    device["model"] = model
+                }
+                if let family = deviceContext["family"] as? String {
+                    device["family"] = family
+                }
+
+                if !device.isEmpty {
+                    contexts["device"] = device
+                }
+
+                // Extract OS context
+                if let osContext = scopeContexts["os"] as? [String: Any] {
+                    var os: [String: Any] = [:]
+
+                    if let name = osContext["name"] as? String {
+                        os["name"] = name
+                    }
+                    if let version = osContext["version"] as? String {
+                        os["version"] = version
+                    }
+
+                    if !os.isEmpty {
+                        contexts["os"] = os
+                    }
+                }
+            }
+
+            // Merge extra context from Sentry SDK
+            let extraContext = PrivateSentrySDKOnly.getExtraContext()
+
+            if let extraDevice = extraContext["device"] as? [String: Any] {
+                var mergedDevice = contexts["device"] as? [String: Any] ?? [:]
+                mergedDevice.merge(extraDevice) { _, new in new }
+                contexts["device"] = mergedDevice
+            }
+
+            if let extraOS = extraContext["os"] as? [String: Any] {
+                var mergedOS = contexts["os"] as? [String: Any] ?? [:]
+                mergedOS.merge(extraOS) { _, new in new }
+                contexts["os"] = mergedOS
+            }
+
+            if !contexts.isEmpty {
+                result["contexts"] = contexts
+            }
+
+            // Extract release
+            if let release = serializedScope["release"] as? String {
+                result["release"] = release
+            }
+
+            call.resolve(result as PluginCallResultData)
         }
     }
 
